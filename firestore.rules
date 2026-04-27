@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// ============================================
+// REGRAS DE SEGURANÇA - FIRESTORE
+// Cole estas regras em:
+// Firebase Console > Firestore > Aba "Regras"
+// ============================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helpers
+    function logado() {
+      return request.auth != null;
+    }
+    function meuPerfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function souAdmin() {
+      return logado() && meuPerfil().role == 'admin';
+    }
+    function souEu(uid) {
+      return logado() && request.auth.uid == uid;
+    }
+
+    // ============= USUÁRIOS =============
+    match /usuarios/{uid} {
+      // Próprio usuário pode ler/escrever seu doc; admin lê todos
+      allow read:   if souEu(uid) || souAdmin();
+      allow create: if souEu(uid)
+                    && request.resource.data.role in ['cliente']; // cadastro público SÓ cria cliente
+      allow update: if souEu(uid) && request.resource.data.role == resource.data.role  // não pode mudar role
+                    || souAdmin();
+      allow delete: if souAdmin();
+    }
+
+    // ============= SERVIÇOS =============
+    // Qualquer logado pode listar; só admin escreve
+    match /servicos/{id} {
+      allow read:  if logado();
+      allow write: if souAdmin();
+    }
+
+    // ============= AGENDAMENTOS =============
+    match /agendamentos/{id} {
+      // Admin lê tudo; cliente lê apenas os seus (pelo uid OU telefone)
+      allow read: if souAdmin()
+                  || (logado() && resource.data.clienteUid == request.auth.uid)
+                  || (logado() && resource.data.clienteTelefone == meuPerfil().telefone);
+
+      // Cliente pode criar agendamento para si mesmo; admin cria qualquer
+      allow create: if souAdmin()
+                    || (logado()
+                        && request.resource.data.clienteUid == request.auth.uid);
+
+      // Atualizações: admin sempre; cliente só pode cancelar o próprio
+      allow update: if souAdmin()
+                    || (logado()
+                        && resource.data.clienteUid == request.auth.uid
+                        && request.resource.data.status == 'cancelado');
+
+      allow delete: if souAdmin();
+    }
+
+    // ============= CONFIGURAÇÕES =============
+    // Qualquer logado lê (pra mostrar slots no agendamento), só admin escreve
+    match /configuracoes/{doc} {
+      allow read:  if logado();
+      allow write: if souAdmin();
+    }
+
+    // ============= BLOQUEIOS =============
+    match /bloqueios/{id} {
+      allow read:  if logado();
+      allow write: if souAdmin();
+    }
+
+    // ============= FINANCEIRO =============
+    // Apenas admin
+    match /financeiro/{id} {
+      allow read, write: if souAdmin();
+    }
+  }
+}
