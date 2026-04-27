@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <title>Acessar — Barbearia Premium</title>
+</head>
+<body>
+
+  <main class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="brand-icon serif">B</div>
+        <div class="hero-tag">Premium</div>
+        <h1 class="serif" style="font-size:1.8rem;margin-top:0.5rem;" id="tituloAuth">Bem-vindo</h1>
+        <p class="text-sm text-muted" id="subtituloAuth">Entre para continuar</p>
+      </div>
+
+      <!-- Tabs Login / Cadastro -->
+      <div class="tabs" id="tabsAuth">
+        <button class="tab active" data-modo="login" type="button">Entrar</button>
+        <button class="tab" data-modo="cadastro" type="button">Cadastrar</button>
+      </div>
+
+      <!-- LOGIN -->
+      <div id="formLogin">
+        <div class="form-group">
+          <label class="form-label" for="loginEmail">E-mail</label>
+          <input type="email" id="loginEmail" class="form-input" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="loginSenha">Senha</label>
+          <input type="password" id="loginSenha" class="form-input" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-block" id="btnLogin" type="button">Entrar</button>
+      </div>
+
+      <!-- CADASTRO -->
+      <div id="formCadastro" class="hidden">
+        <div class="form-group">
+          <label class="form-label" for="cadNome">Nome completo</label>
+          <input type="text" id="cadNome" class="form-input" autocomplete="name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cadTel">Telefone (com DDD)</label>
+          <input type="tel" id="cadTel" class="form-input" placeholder="(00) 00000-0000" autocomplete="tel" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cadEmail">E-mail</label>
+          <input type="email" id="cadEmail" class="form-input" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cadSenha">Senha (mín. 6 caracteres)</label>
+          <input type="password" id="cadSenha" class="form-input" autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-primary btn-block" id="btnCadastrar" type="button">Criar conta</button>
+      </div>
+
+      <p class="auth-footer">
+        <a href="index.html">← Voltar</a>
+      </p>
+    </div>
+  </main>
+
+  <button id="installBtn" class="btn btn-primary hidden">
+    <span style="font-size:1.2rem">⬇</span> Instalar app
+  </button>
+
+  <script type="module">
+    import { login, cadastrar, mensagemErroAuth, carregarPerfil } from './js/auth.js';
+    import { auth, onAuthStateChanged } from './js/firebase-config.js';
+    import { toastError, toastSuccess, showLoading, hideLoading, formatarTelefone, limparTelefone } from './js/utils.js';
+    import { registrarSW, habilitarBotaoInstalar } from './js/pwa.js';
+
+    registrarSW();
+    habilitarBotaoInstalar('installBtn');
+
+    // Já logado? redireciona
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) return;
+      try {
+        const p = await carregarPerfil(user.uid);
+        if (!p) return;
+        window.location.replace(p.role === 'admin' ? 'dashboard.html' : 'agendamento.html');
+      } catch (err) {}
+    });
+
+    // Param ?modo=cadastro|login
+    const params = new URLSearchParams(location.search);
+    const modoInicial = params.get('modo') === 'cadastro' ? 'cadastro' : 'login';
+    const ehAdmin = params.get('role') === 'admin';
+
+    function alternarModo(modo) {
+      document.querySelectorAll('[data-modo]').forEach((b) => b.classList.toggle('active', b.dataset.modo === modo));
+      document.getElementById('formLogin').classList.toggle('hidden', modo !== 'login');
+      document.getElementById('formCadastro').classList.toggle('hidden', modo !== 'cadastro');
+      document.getElementById('tituloAuth').textContent = modo === 'login' ? 'Bem-vindo' : 'Criar conta';
+      document.getElementById('subtituloAuth').textContent = modo === 'login' ? 'Entre para continuar' : 'É rápido e gratuito';
+    }
+    alternarModo(modoInicial);
+    document.querySelectorAll('[data-modo]').forEach((b) => b.addEventListener('click', () => alternarModo(b.dataset.modo)));
+
+    // Login
+    document.getElementById('btnLogin').addEventListener('click', async () => {
+      const email = document.getElementById('loginEmail').value;
+      const senha = document.getElementById('loginSenha').value;
+      if (!email || !senha) { toastError('Preencha e-mail e senha.'); return; }
+      try {
+        showLoading('Entrando...');
+        const { perfil } = await login(email, senha);
+        hideLoading();
+        toastSuccess(`Olá, ${perfil.nome.split(' ')[0]}!`);
+        setTimeout(() => {
+          window.location.replace(perfil.role === 'admin' ? 'dashboard.html' : 'agendamento.html');
+        }, 600);
+      } catch (err) {
+        hideLoading();
+        toastError(mensagemErroAuth(err));
+      }
+    });
+
+    // Cadastro (sempre como cliente; admin é criado direto via Firebase Console)
+    document.getElementById('btnCadastrar').addEventListener('click', async () => {
+      const nome = document.getElementById('cadNome').value;
+      const tel  = document.getElementById('cadTel').value;
+      const email = document.getElementById('cadEmail').value;
+      const senha = document.getElementById('cadSenha').value;
+      try {
+        showLoading('Criando conta...');
+        const { perfil } = await cadastrar({ nome, email, senha, telefone: tel, role: 'cliente' });
+        hideLoading();
+        toastSuccess('Conta criada! Bem-vindo(a)!');
+        setTimeout(() => window.location.replace('agendamento.html'), 700);
+      } catch (err) {
+        hideLoading();
+        toastError(mensagemErroAuth(err));
+      }
+    });
+
+    // Máscara de telefone (cadastro)
+    const telInput = document.getElementById('cadTel');
+    telInput.addEventListener('input', (e) => {
+      const v = limparTelefone(e.target.value).slice(0, 11);
+      e.target.value = formatarTelefone(v);
+    });
+
+    // Enter submete
+    document.getElementById('formLogin').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btnLogin').click();
+    });
+    document.getElementById('formCadastro').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btnCadastrar').click();
+    });
+  </script>
+</body>
+</html>
