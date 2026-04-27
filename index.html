@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="Barbearia Premium — Agendamento online">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <title>Barbearia Premium</title>
+</head>
+<body>
+
+  <main class="hero">
+    <div class="hero-icon serif">B</div>
+    <div class="hero-tag">Premium</div>
+    <h1 class="serif">Barbearia</h1>
+    <p>Agende seu horário em segundos. Estilo, precisão e tradição em um só lugar.</p>
+
+    <div class="hero-actions">
+      <a href="login.html" class="btn btn-primary btn-block">Entrar</a>
+      <a href="login.html?modo=cadastro" class="btn btn-secondary btn-block">Criar conta</a>
+    </div>
+
+    <p class="text-sm text-muted mt-3">Acesso administrativo? <a href="login.html?role=admin">Login admin</a></p>
+  </main>
+
+  <button id="installBtn" class="btn btn-primary hidden">
+    <span style="font-size:1.2rem">⬇</span> Instalar app
+  </button>
+
+  <script type="module">
+    import { registrarSW, habilitarBotaoInstalar } from './js/pwa.js';
+    import { auth, onAuthStateChanged } from './js/firebase-config.js';
+    import { carregarPerfil } from './js/auth.js';
+
+    registrarSW();
+    habilitarBotaoInstalar('installBtn');
+
+    // Auto-redirect se já estiver logado
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) return;
+      try {
+        const perfil = await carregarPerfil(user.uid);
+        if (!perfil) return;
+        if (perfil.role === 'admin') window.location.replace('dashboard.html');
+        else window.location.replace('agendamento.html');
+      } catch (err) { console.warn(err); }
+    });
+  </script>
+</body>
+</html>
