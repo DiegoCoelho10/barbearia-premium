@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <title>Painel Admin — Barbearia Premium</title>
+</head>
+<body>
+
+  <!-- Topbar -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-icon serif">B</div>
+      <div>
+        <div class="brand-name">Barbearia</div>
+        <div class="brand-tag">Premium</div>
+      </div>
+    </div>
+    <div class="flex gap-1" style="align-items:center;">
+      <div id="userBadge" class="flex gap-1" style="align-items:center;"></div>
+      <button class="btn btn-ghost btn-sm" id="btnLogout" title="Sair">Sair</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Tabs (desktop e tablet) -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="agenda" type="button">📅 Agenda</button>
+      <button class="tab" data-tab="servicos" type="button">✂️ Serviços</button>
+      <button class="tab" data-tab="financeiro" type="button">💰 Financeiro</button>
+      <button class="tab" data-tab="config" type="button">⚙️ Configurações</button>
+    </div>
+
+    <div id="tab-agenda"     class="tab-content active"></div>
+    <div id="tab-servicos"   class="tab-content"></div>
+    <div id="tab-financeiro" class="tab-content"></div>
+    <div id="tab-config"     class="tab-content"></div>
+  </main>
+
+  <!-- Bottom nav (mobile) -->
+  <nav class="bottom-nav">
+    <div class="bottom-nav-inner">
+      <button class="bottom-nav-item active" data-bottom-tab="agenda" type="button">
+        <span class="bottom-nav-icon">📅</span><span>Agenda</span>
+      </button>
+      <button class="bottom-nav-item" data-bottom-tab="servicos" type="button">
+        <span class="bottom-nav-icon">✂️</span><span>Serviços</span>
+      </button>
+      <button class="bottom-nav-item" data-bottom-tab="financeiro" type="button">
+        <span class="bottom-nav-icon">💰</span><span>Caixa</span>
+      </button>
+      <button class="bottom-nav-item" data-bottom-tab="config" type="button">
+        <span class="bottom-nav-icon">⚙️</span><span>Config</span>
+      </button>
+    </div>
+  </nav>
+
+  <button id="installBtn" class="btn btn-primary hidden">
+    <span style="font-size:1.2rem">⬇</span> Instalar
+  </button>
+
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>
