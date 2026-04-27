@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <title>Agendar — Barbearia Premium</title>
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-icon serif">B</div>
+      <div>
+        <div class="brand-name">Barbearia</div>
+        <div class="brand-tag">Premium</div>
+      </div>
+    </div>
+    <div class="flex gap-1" style="align-items:center;">
+      <span id="userNome" class="text-sm text-muted"></span>
+      <button class="btn btn-ghost btn-sm" id="btnLogout">Sair</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="novo" type="button">Novo agendamento</button>
+      <button class="tab" data-tab="meus" type="button">Meus agendamentos</button>
+    </div>
+
+    <!-- ===== NOVO AGENDAMENTO ===== -->
+    <section id="tab-novo" class="tab-content active">
+
+      <!-- ETAPA 1: Serviço -->
+      <div class="card mb-3" id="etapa1">
+        <h2 style="margin-bottom:0.25rem;">1. Escolha o serviço</h2>
+        <p class="text-sm text-muted mb-2">Selecione o que deseja fazer.</p>
+        <div id="listaServicos"></div>
+      </div>
+
+      <!-- ETAPA 2: Data -->
+      <div class="card mb-3 hidden" id="etapa2">
+        <h2 style="margin-bottom:0.25rem;">2. Escolha a data</h2>
+        <p class="text-sm text-muted mb-2">Selecione um dia disponível.</p>
+        <div class="form-group" style="margin-bottom:0;">
+          <input type="date" class="form-input" id="inputData">
+        </div>
+      </div>
+
+      <!-- ETAPA 3: Horário -->
+      <div class="card mb-3 hidden" id="etapa3">
+        <h2 style="margin-bottom:0.25rem;">3. Escolha o horário</h2>
+        <p class="text-sm text-muted mb-2">Toque em um horário disponível.</p>
+        <div id="slots" class="slots-grid"></div>
+      </div>
+
+      <!-- ETAPA 4: Confirmar -->
+      <div class="card mb-3 hidden" id="etapa4">
+        <h2 style="margin-bottom:0.25rem;">4. Confirme</h2>
+        <div id="resumoAg" class="mt-2"></div>
+        <button class="btn btn-primary btn-block mt-2" id="btnConfirmar">Confirmar agendamento</button>
+      </div>
+    </section>
+
+    <!-- ===== MEUS AGENDAMENTOS ===== -->
+    <section id="tab-meus" class="tab-content">
+      <div id="meusAg"></div>
+    </section>
+  </main>
+
+  <button id="installBtn" class="btn btn-primary hidden">
+    <span style="font-size:1.2rem">⬇</span> Instalar app
+  </button>
+
+  <script type="module">
+    import { proteger, logout, getPerfilAtual } from './js/auth.js';
+    import {
+      listarServicos, listarAgendamentosDoDia, listarBloqueiosDoDia,
+      carregarHorarios, gerarSlots, criarAgendamento,
+      listarAgendamentosDoCliente, cancelarAgendamento
+    } from './js/agendamento.js';
+    import { abrirWhatsApp, TEMPLATES } from './js/whatsapp.js';
+    import { registrarSW, habilitarBotaoInstalar } from './js/pwa.js';
+    import {
+      hojeISO, formatarData, formatarBRL, formatarTelefone, escapeHtml,
+      toast, toastSuccess, toastError, showLoading, hideLoading,
+      modal, confirmar
+    } from './js/utils.js';
+
+    let perfil = null;
+    let estado = { servico: null, data: null, hora: null };
+
+    /* ---------- INIT ---------- */
+    document.addEventListener('DOMContentLoaded', async () => {
+      registrarSW();
+      habilitarBotaoInstalar('installBtn');
+      showLoading('Carregando...');
+      perfil = await proteger({
+        redirectIfNoUser: 'login.html',
+        requireRole: 'cliente',
+        redirectWrongRole: 'dashboard.html'
+      });
+      hideLoading();
+      if (!perfil) return;
+
+      document.getElementById('userNome').textContent = perfil.nome.split(' ')[0];
+      document.getElementById('btnLogout').addEventListener('click', async () => {
+        if (await confirmar('Deseja sair?')) { await logout(); window.location.href = 'login.html'; }
+      });
+
+      // Tabs
+      document.querySelectorAll('[data-tab]').forEach((b) =>
+        b.addEventListener('click', () => trocarAba(b.dataset.tab)));
+
+      // Data inicial
+      const inputData = document.getElementById('inputData');
+      inputData.min = hojeISO();
+      inputData.value = hojeISO();
+      inputData.addEventListener('change', selecionarData);
+
+      // Botão confirmar
+      document.getElementById('btnConfirmar').addEventListener('click', confirmarAgendamento);
+
+      await renderServicos();
+      // Pré-renderiza meus agendamentos para evitar travar ao trocar de aba
+    });
+
+    function trocarAba(nome) {
+      document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === nome));
+      document.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+      document.getElementById(`tab-${nome}`).classList.add('active');
+      if (nome === 'meus') renderMeusAgendamentos();
+    }
+
+    /* ---------- ETAPA 1: Serviços ---------- */
+    async function renderServicos() {
+      const cont = document.getElementById('listaServicos');
+      cont.innerHTML = `<div class="empty"><div class="spinner" style="margin:auto"></div></div>`;
+      try {
+        const servs = await listarServicos(true);
+        if (!servs.length) {
+          cont.innerHTML = `<div class="empty"><div class="empty-icon">⏳</div><p>Nenhum serviço disponível no momento.</p></div>`;
+          return;
+        }
+        cont.innerHTML = `<div class="list">${servs.map((s) => `
+          <button class="list-item" data-srv="${s.id}" type="button" style="cursor:pointer;text-align:left;width:100%;background:var(--card);border:1px solid var(--borda);">
+            <div class="list-item-icon">✂️</div>
+            <div class="list-item-body">
+              <div class="list-item-title">${escapeHtml(s.nome)}</div>
+              <div class="list-item-sub">${s.duracao} min</div>
+            </div>
+            <div style="font-weight:600;color:var(--dourado);font-size:1.05rem;">${formatarBRL(s.preco)}</div>
+          </button>`).join('')}</div>`;
+        cont.querySelectorAll('[data-srv]').forEach((btn) =>
+          btn.addEventListener('click', () => selecionarServico(servs.find((x) => x.id === btn.dataset.srv))));
+      } catch (err) {
+        cont.innerHTML = `<div class="empty"><p style="color:var(--erro)">Erro: ${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+
+    function selecionarServico(s) {
+      estado.servico = s;
+      estado.hora = null;
+      // Marca visualmente
+      document.querySelectorAll('[data-srv]').forEach((b) => {
+        b.style.borderColor = (b.dataset.srv === s.id) ? 'var(--dourado)' : 'var(--borda)';
+      });
+      document.getElementById('etapa2').classList.remove('hidden');
+      document.getElementById('etapa3').classList.add('hidden');
+      document.getElementById('etapa4').classList.add('hidden');
+      selecionarData();
+    }
+
+    /* ---------- ETAPA 2 + 3: Data e horários ---------- */
+    async function selecionarData() {
+      if (!estado.servico) return;
+      const d = document.getElementById('inputData').value;
+      if (!d) return;
+      estado.data = d;
+      estado.hora = null;
+      document.getElementById('etapa3').classList.remove('hidden');
+      document.getElementById('etapa4').classList.add('hidden');
+      const slotsEl = document.getElementById('slots');
+      slotsEl.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="spinner" style="margin:auto"></div></div>`;
+      try {
+        const [agendamentos, bloqueios, horarios] = await Promise.all([
+          listarAgendamentosDoDia(d),
+          listarBloqueiosDoDia(d),
+          carregarHorarios()
+        ]);
+        const slots = gerarSlots({
+          dataISO: d,
+          duracaoServico: estado.servico.duracao,
+          agendamentos,
+          bloqueios,
+          horarios
+        });
+        if (!slots.length) {
+          slotsEl.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">😴</div><p>Não atendemos nesta data.</p></div>`;
+          return;
+        }
+        slotsEl.innerHTML = slots.map((s) =>
+          `<button class="slot" type="button" data-hora="${s.hora}" ${s.disponivel?'':'disabled'}>${s.hora}</button>`
+        ).join('');
+        slotsEl.querySelectorAll('.slot:not([disabled])').forEach((btn) =>
+          btn.addEventListener('click', () => selecionarHora(btn.dataset.hora)));
+      } catch (err) {
+        slotsEl.innerHTML = `<div class="empty" style="grid-column:1/-1"><p style="color:var(--erro)">${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+
+    function selecionarHora(hora) {
+      estado.hora = hora;
+      document.querySelectorAll('.slot').forEach((s) => s.classList.toggle('selected', s.dataset.hora === hora));
+      const r = document.getElementById('resumoAg');
+      r.innerHTML = `
+        <div class="card-glass" style="padding:1rem;border-radius:var(--raio);background:var(--preto-2);">
+          <div style="font-family:'Playfair Display',serif;font-size:1.2rem;color:var(--dourado);margin-bottom:0.75rem;">${escapeHtml(estado.servico.nome)}</div>
+          <div class="text-sm" style="display:grid;gap:6px;">
+            <div>📅 <strong>${formatarData(estado.data)}</strong> às <strong>${hora}</strong></div>
+            <div>⏱️ ${estado.servico.duracao} minutos</div>
+            <div>💰 ${formatarBRL(estado.servico.preco)}</div>
+            <div>👤 ${escapeHtml(perfil.nome)} · ${formatarTelefone(perfil.telefone)}</div>
+          </div>
+        </div>`;
+      document.getElementById('etapa4').classList.remove('hidden');
+      // Scroll suave até a confirmação
+      setTimeout(() => document.getElementById('etapa4').scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    }
+
+    async function confirmarAgendamento() {
+      if (!estado.servico || !estado.data || !estado.hora) {
+        toastError('Selecione serviço, data e horário.');
+        return;
+      }
+      try {
+        showLoading('Confirmando...');
+        const { agendamento } = await criarAgendamento({
+          clienteUid: perfil.uid,
+          clienteNome: perfil.nome,
+          clienteTelefone: perfil.telefone,
+          servicoId: estado.servico.id,
+          servicoNome: estado.servico.nome,
+          duracao: estado.servico.duracao,
+          preco: estado.servico.preco,
+          data: estado.data,
+          hora: estado.hora,
+          encaixe: false
+        });
+        hideLoading();
+        toastSuccess('Agendamento confirmado! ✨');
+        // Reset
+        estado = { servico: null, data: null, hora: null };
+        document.getElementById('etapa2').classList.add('hidden');
+        document.getElementById('etapa3').classList.add('hidden');
+        document.getElementById('etapa4').classList.add('hidden');
+        document.querySelectorAll('[data-srv]').forEach((b) => b.style.borderColor = 'var(--borda)');
+        // Vai para "meus agendamentos"
+        setTimeout(() => trocarAba('meus'), 600);
+      } catch (err) {
+        hideLoading();
+        toastError(err.message);
+      }
+    }
+
+    /* ---------- MEUS AGENDAMENTOS ---------- */
+    async function renderMeusAgendamentos() {
+      const cont = document.getElementById('meusAg');
+      cont.innerHTML = `<div class="empty"><div class="spinner" style="margin:auto"></div></div>`;
+      try {
+        const ags = await listarAgendamentosDoCliente(perfil.telefone);
+        if (!ags.length) {
+          cont.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">Sem agendamentos</div><p>Você ainda não possui agendamentos.</p></div>`;
+          return;
+        }
+        const futuros = ags.filter((a) => `${a.data} ${a.hora}` >= `${hojeISO()} 00:00` && a.status !== 'cancelado');
+        const passados = ags.filter((a) => !futuros.includes(a));
+
+        const renderItem = (a) => `
+          <div class="list-item">
+            <div class="list-item-icon">${escapeHtml(a.hora)}</div>
+            <div class="list-item-body">
+              <div class="list-item-title">
+                ${escapeHtml(a.servicoNome)}
+                ${a.status === 'cancelado' ? '<span class="badge badge-danger" style="margin-left:6px">Cancelado</span>' : ''}
+              </div>
+              <div class="list-item-sub">${formatarData(a.data)} · ${a.duracao}min · ${formatarBRL(a.preco)}</div>
+            </div>
+            ${a.status !== 'cancelado' && futuros.includes(a) ? `
+              <div class="list-item-actions">
+                <button class="icon-btn danger" data-cancel="${a.id}" title="Cancelar">✕</button>
+              </div>` : ''}
+          </div>`;
+
+        cont.innerHTML = `
+          ${futuros.length ? `<h3 class="serif mb-2" style="color:var(--dourado);">Próximos</h3><div class="list mb-3">${futuros.map(renderItem).join('')}</div>` : ''}
+          ${passados.length ? `<h3 class="serif mb-2" style="color:var(--texto-2);">Histórico</h3><div class="list">${passados.map(renderItem).join('')}</div>` : ''}
+        `;
+        cont.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => {
+          if (await confirmar('Cancelar este agendamento?', 'Cancelar', true)) {
+            try {
+              await cancelarAgendamento(b.dataset.cancel);
+              toastSuccess('Agendamento cancelado.');
+              renderMeusAgendamentos();
+            } catch (err) { toastError(err.message); }
+          }
+        }));
+      } catch (err) {
+        cont.innerHTML = `<div class="empty"><p style="color:var(--erro)">Erro: ${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+  </script>
+</body>
+</html>
